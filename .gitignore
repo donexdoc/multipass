@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.turbo/
+
+# Prisma generated client
+packages/prisma/node_modules/
+
+# Environment
+.env
+.env.local
+.env.*.local
+packages/prisma/.env
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+
+# Vite
+apps/fe-multipass/dist/
+
+# Production DB backups (created by CI on the server, should not be in git)
+backups/

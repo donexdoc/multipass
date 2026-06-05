@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+// Тип адресной записи
+enum AddressType {
+  IP      // одиночный IP: 1.2.3.4
+  SUBNET  // подсеть CIDR: 1.2.3.0/24
+  RANGE   // диапазон: 1.2.3.0-1.2.3.255
+  DOMAIN  // доменное имя: example.com (резолвится в IP)
+}
+
+// Формат парсинга источника
+enum SourceFormat {
+  PLAIN_TEXT // одна запись на строку
+}
+
+// Статус последнего / текущего запуска
+enum LogStatus {
+  SUCCESS
+  FAILURE
+}
+
+// Тип события лога
+enum LogType {
+  SOURCE_FETCH    // обновление адресов из источника
+  DOMAIN_RESOLVE  // DNS-резолвинг доменов
+}
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid())
+  login        String   @unique
+  passwordHash String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("users")
+}
+
+// ─── Settings ─────────────────────────────────────────────────────────────────
+
+// Таблица настроек: key → value, с fallback на константы в коде
+model Setting {
+  key         String   @id
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("settings")
+}
+
+// ─── Sources ──────────────────────────────────────────────────────────────────
+
+// Внешний источник IP-адресов (например, antifilter)
+model Source {
+  id             String       @id @default(uuid())
+  name           String
+  url            String
+  format         SourceFormat @default(PLAIN_TEXT)
+  updateInterval String       // cron-выражение, например "0 4 * * *"
+  isEnabled      Boolean      @default(true)
+  lastFetchedAt    DateTime?
+  lastStatus       LogStatus?  // null — ещё не запускался
+  lastErrorMessage String?     // сообщение последней ошибки
+  entryCount     Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  addresses SourceAddress[]
+  logs      UpdateLog[]
+
+  @@map("sources")
+}
+
+// Адреса, загруженные из источника.
+// Hard delete + re-insert при каждом успешном обновлении источника.
+model SourceAddress {
+  id        String      @id @default(uuid())
+  sourceId  String
+  value     String      // IP, подсеть или домен
+  type      AddressType
+  createdAt DateTime    @default(now())
+
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId])
+  @@index([type])
+  @@map("source_addresses")
+}
+
+// ─── Custom Entries ───────────────────────────────────────────────────────────
+
+// Адреса, добавленные вручную пользователем.
+// Никогда не удаляются автоматически. Soft disable через isEnabled.
+model CustomEntry {
+  id        String      @id @default(uuid())
+  value     String      // IP, подсеть или домен
+  type      AddressType
+  comment   String?
+  isEnabled Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@map("custom_entries")
+}
+
+// ─── Resolved IPs ─────────────────────────────────────────────────────────────
+
+// Результат DNS-резолвинга доменов (из source_addresses и custom_entries).
+// Hard delete + re-insert при каждом запуске резолвера.
+model ResolvedIp {
+  id         String   @id @default(uuid())
+  domain     String   // домен, который был зарезолвлен
+  ip         String   // полученный IP
+  resolvedAt DateTime @default(now())
+
+  @@unique([domain, ip]) // нет дубликатов для одной пары
+  @@index([domain])
+  @@map("resolved_ips")
+}
+
+// ─── Export Formats ───────────────────────────────────────────────────────────
+
+// Шаблоны форматов вывода, настраиваемые через UI.
+// Плейсхолдер в lineTemplate: {address}
+model ExportFormat {
+  id           String   @id @default(uuid())
+  name         String
+  slug         String   @unique // используется в URL: GET /api/export/:slug
+  header       String?          // текст перед списком
+  lineTemplate String           // шаблон строки, например: "add address={address}"
+  footer       String?          // текст после списка
+  contentType  String   @default("text/plain")
+  isEnabled    Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("export_formats")
+}
+
+// ─── Update Logs ──────────────────────────────────────────────────────────────
+
+// Лог каждого запуска: обновление источника или резолвинг доменов.
+// sourceId = null для DOMAIN_RESOLVE.
+model UpdateLog {
+  id             String    @id @default(uuid())
+  type           LogType
+  sourceId       String?
+  status         LogStatus
+  entriesAdded   Int       @default(0)
+  entriesRemoved Int       @default(0)
+  errorMessage   String?
+  startedAt      DateTime
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+
+  source Source? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  @@index([sourceId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("update_logs")
+}
