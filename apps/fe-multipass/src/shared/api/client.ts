@@ -13,11 +13,13 @@ apiClient.interceptors.request.use(config => {
 })
 
 // On 401: try refresh → retry, else clear tokens and redirect to /login
+// Auth endpoints themselves must not trigger refresh (avoids loop on bad credentials)
 apiClient.interceptors.response.use(
   response => response,
   async error => {
     const originalRequest = error.config
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    const isAuthEndpoint = (originalRequest.url as string)?.includes('/auth/')
+    if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
       originalRequest._retry = true
       try {
         const refreshToken = useAuthStore.getState().refreshToken

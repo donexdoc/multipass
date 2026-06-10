@@ -1,4 +1,4 @@
-import { CheckCircle2, XCircle, Copy, ExternalLink, AlertTriangle } from 'lucide-react'
+import { CheckCircle2, XCircle, Copy, ExternalLink, AlertTriangle, Loader2, Radio } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card } from '@/shared/ui/card.js'
 import { Badge } from '@/shared/ui/badge.js'
@@ -6,7 +6,9 @@ import { Skeleton } from '@/shared/ui/skeleton.js'
 import { Button } from '@/shared/ui/button.js'
 import { cn } from '@/shared/lib/utils.js'
 import { useStats } from '@/entities/stats/index.js'
-import type { DashboardStats, LastFetchStat, LastResolveStat } from '@multipass/shared'
+import { useRunningTasks } from '@/entities/task/index.js'
+import { useBgpStatus } from '@/entities/bgp/index.js'
+import type { DashboardStats, LastFetchStat, LastResolveStat, RunningTask, BgpStatus } from '@multipass/shared'
 
 function fmt(n: number | undefined) {
   return n === undefined ? null : n.toLocaleString('ru-RU')
@@ -91,6 +93,109 @@ function StatusCard({ label, data, detail }: StatusCardProps) {
   )
 }
 
+// ─── Running tasks ────────────────────────────────────────────────────────────
+
+function RunningTasksCard({ tasks }: { tasks: RunningTask[] }) {
+  if (tasks.length === 0) return null
+
+  return (
+    <Card className="py-4 gap-3 border-blue-500/40 bg-blue-500/5">
+      <div className="px-4 flex items-center gap-2 text-xs font-medium text-blue-600 dark:text-blue-400">
+        <Loader2 size={12} className="animate-spin" />
+        Выполняется прямо сейчас
+      </div>
+      <div className="px-4 space-y-2">
+        {tasks.map((task) => (
+          <div key={task.id} className="flex items-center gap-2 text-sm">
+            <Badge variant="outline" className="text-xs shrink-0">
+              {task.type === 'SOURCE_FETCH' ? 'Источник' : 'Резолвер'}
+            </Badge>
+            <span className="text-foreground truncate">
+              {task.sourceName ?? (task.type === 'DOMAIN_RESOLVE' ? 'DNS-резолвинг' : '—')}
+            </span>
+            <span className="text-xs text-muted-foreground ml-auto shrink-0">
+              с {new Date(task.startedAt).toLocaleTimeString('ru-RU')}
+            </span>
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
+// ─── BGP status card ──────────────────────────────────────────────────────────
+
+function BgpCard({ bgp, isLoading }: { bgp: BgpStatus | undefined; isLoading: boolean }) {
+  return (
+    <Card className="py-4 gap-3">
+      <div className="px-4 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <Radio size={12} />
+        BGP
+      </div>
+      <div className="px-4 space-y-2">
+        {isLoading ? (
+          <>
+            <Skeleton className="h-5 w-20" />
+            <Skeleton className="h-4 w-28" />
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 flex-wrap">
+              {bgp?.isEnabled ? (
+                <Badge className="gap-1.5 text-xs bg-green-600 hover:bg-green-600">
+                  <CheckCircle2 size={10} />
+                  Включён
+                </Badge>
+              ) : (
+                <Badge variant="secondary" className="gap-1.5 text-xs">
+                  <XCircle size={10} />
+                  Отключён
+                </Badge>
+              )}
+              {bgp?.isEnabled && (
+                bgp.isConnected ? (
+                  <Badge variant="outline" className="gap-1.5 text-xs text-blue-600 border-blue-600/40">
+                    <CheckCircle2 size={10} />
+                    GoBGP ок
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="gap-1.5 text-xs text-destructive border-destructive/40">
+                    <XCircle size={10} />
+                    GoBGP недоступен
+                  </Badge>
+                )
+              )}
+            </div>
+            {bgp?.isEnabled && bgp.isConnected && (
+              <span className="text-sm tabular-nums text-muted-foreground">
+                {(bgp.announcedCount).toLocaleString('ru-RU')} префиксов
+              </span>
+            )}
+            {bgp?.lastError && (
+              <div className="text-xs text-destructive flex items-start gap-1">
+                <AlertTriangle size={11} className="shrink-0 mt-0.5" />
+                {bgp.lastError}
+              </div>
+            )}
+            {bgp?.isEnabled && bgp.lastSyncAt && !bgp.lastError && (
+              <div className="text-xs text-muted-foreground">
+                Синхр. {new Date(bgp.lastSyncAt).toLocaleString('ru-RU')}
+              </div>
+            )}
+            {!bgp?.isEnabled && (
+              <div className="text-xs text-muted-foreground">
+                <a href="/bgp" className="underline underline-offset-2 hover:text-foreground">
+                  Настроить BGP →
+                </a>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 // ─── Export formats ───────────────────────────────────────────────────────────
 
 function ExportFormatsCard({ formats }: { formats: DashboardStats['exportFormats'] | undefined }) {
@@ -149,6 +254,8 @@ function ExportFormatsCard({ formats }: { formats: DashboardStats['exportFormats
 
 export function Component() {
   const { data: stats } = useStats()
+  const { data: runningTasks = [] } = useRunningTasks()
+  const { data: bgp, isLoading: bgpLoading } = useBgpStatus()
 
   const lastFetchDetail =
     stats?.lastSourceFetch
@@ -209,8 +316,11 @@ export function Component() {
         />
       </div>
 
-      {/* Row 2: last activity */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {/* Running tasks — visible only when tasks are active */}
+      <RunningTasksCard tasks={runningTasks} />
+
+      {/* Row 2: last activity + BGP */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <StatusCard
           label="Последнее обновление источников"
           data={stats?.lastSourceFetch}
@@ -221,6 +331,7 @@ export function Component() {
           data={stats?.lastDomainResolve}
           detail={lastResolveDetail}
         />
+        <BgpCard bgp={bgp} isLoading={bgpLoading} />
       </div>
 
       {/* Row 3: export formats */}

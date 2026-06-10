@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { APP_GUARD } from '@nestjs/core'
 import { ScheduleModule } from '@nestjs/schedule'
+import { EventEmitterModule } from '@nestjs/event-emitter'
 import { PrismaModule } from './prisma/prisma.module.js'
 import { AuthModule } from './domains/auth/auth.module.js'
 import { UsersModule } from './domains/users/users.module.js'
@@ -14,10 +15,13 @@ import { ExportModule } from './domains/export/export.module.js'
 import { ResolverModule } from './domains/resolver/resolver.module.js'
 import { LogsModule } from './domains/logs/logs.module.js'
 import { StatsModule } from './domains/stats/stats.module.js'
+import { TasksModule } from './domains/tasks/tasks.module.js'
+import { BgpModule } from './domains/bgp/bgp.module.js'
 
 @Module({
   imports: [
     ScheduleModule.forRoot(),
+    EventEmitterModule.forRoot(),
     PrismaModule,
     AuthModule,
     UsersModule,
@@ -30,6 +34,8 @@ import { StatsModule } from './domains/stats/stats.module.js'
     ResolverModule,
     LogsModule,
     StatsModule,
+    TasksModule,
+    BgpModule,
   ],
   providers: [
     {

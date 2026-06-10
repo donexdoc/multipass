@@ -27,6 +27,9 @@ export class SourcesService {
     const source = await this.prisma.source.create({ data: dto })
     if (source.isEnabled) {
       this.fetcher.scheduleSource(source)
+      this.fetcher.fetchSource(source.id).catch(() => {
+        // error is logged inside fetchSource
+      })
     }
     return source
   }

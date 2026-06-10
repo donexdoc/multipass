@@ -3,11 +3,12 @@ import { PrismaModule } from '../../prisma/prisma.module.js'
 import { AuthModule } from '../auth/auth.module.js'
 import { SettingsModule } from '../settings/settings.module.js'
 import { ExportModule } from '../export/export.module.js'
+import { TasksModule } from '../tasks/tasks.module.js'
 import { ResolverController } from './resolver.controller.js'
 import { ResolverService } from './resolver.service.js'
 
 @Module({
-  imports: [PrismaModule, AuthModule, SettingsModule, ExportModule],
+  imports: [PrismaModule, AuthModule, SettingsModule, ExportModule, TasksModule],
   controllers: [ResolverController],
   providers: [ResolverService],
 })

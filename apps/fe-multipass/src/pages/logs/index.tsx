@@ -1,9 +1,11 @@
 import { useState, useMemo } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
-import type { UpdateLog, LogType, LogStatus } from '@multipass/shared'
+import type { UpdateLog, LogType, LogStatus, RunningTask } from '@multipass/shared'
 import { useLogs } from '@/entities/log/index.js'
+import { useRunningTasks } from '@/entities/task/index.js'
 import { DataTable } from '@/shared/ui/data-table.js'
 import { Badge } from '@/shared/ui/badge.js'
+import { Card } from '@/shared/ui/card.js'
 import {
   Select,
   SelectContent,
@@ -11,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/shared/ui/select.js'
-import { CheckCircle2, XCircle, Clock } from 'lucide-react'
+import { CheckCircle2, XCircle, Clock, Loader2 } from 'lucide-react'
 import { cn } from '@/shared/lib/utils.js'
 
 type TypeFilter = LogType | 'all'
@@ -109,11 +111,87 @@ const columns: ColumnDef<UpdateLog>[] = [
   },
 ]
 
+// ─── Running tasks list ───────────────────────────────────────────────────────
+
+function RunningTasksList({ tasks }: { tasks: RunningTask[] }) {
+  if (tasks.length === 0) return null
+
+  return (
+    <Card className="py-4 gap-3 border-blue-500/40 bg-blue-500/5">
+      <div className="px-4 flex items-center gap-2 text-xs font-medium text-blue-600 dark:text-blue-400">
+        <Loader2 size={12} className="animate-spin" />
+        Выполняется сейчас ({tasks.length})
+      </div>
+      <div className="px-4 space-y-2">
+        {tasks.map((task) => (
+          <div key={task.id} className="flex items-center gap-2 text-sm">
+            <Badge variant="outline" className="text-xs shrink-0">
+              {task.type === 'SOURCE_FETCH' ? 'Источник' : 'Резолвер'}
+            </Badge>
+            <span className="text-foreground truncate">
+              {task.sourceName ?? (task.type === 'DOMAIN_RESOLVE' ? 'DNS-резолвинг' : '—')}
+            </span>
+            <span className="text-xs text-muted-foreground ml-auto shrink-0">
+              с {new Date(task.startedAt).toLocaleTimeString('ru-RU')}
+            </span>
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
+// ─── Stats bar ────────────────────────────────────────────────────────────────
+
+interface StatsBarProps {
+  logs: UpdateLog[]
+}
+
+function StatsBar({ logs }: StatsBarProps) {
+  const total = logs.length
+  const success = logs.filter((l) => l.status === 'SUCCESS').length
+  const failure = total - success
+  const successRate = total > 0 ? Math.round((success / total) * 100) : null
+
+  return (
+    <div className="flex flex-wrap gap-4 text-sm">
+      <span className="text-muted-foreground">
+        Всего: <span className="text-foreground font-medium tabular-nums">{total}</span>
+      </span>
+      {successRate !== null && (
+        <>
+          <span className="text-green-600 dark:text-green-400">
+            Успешных: <span className="font-medium tabular-nums">{success}</span>
+          </span>
+          <span className="text-destructive">
+            Ошибок: <span className="font-medium tabular-nums">{failure}</span>
+          </span>
+          <span
+            className={cn(
+              'font-medium tabular-nums',
+              successRate >= 90
+                ? 'text-green-600 dark:text-green-400'
+                : successRate >= 70
+                  ? 'text-yellow-600 dark:text-yellow-400'
+                  : 'text-destructive',
+            )}
+          >
+            {successRate}% успех
+          </span>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─── Page ────────────────────────────────────────────────────────────────────
+
 export function Component() {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
   const { data: allLogs = [], isLoading } = useLogs({ type: typeFilter })
+  const { data: runningTasks = [] } = useRunningTasks()
 
   const logs = useMemo(() => {
     if (statusFilter === 'all') return allLogs
@@ -126,6 +204,10 @@ export function Component() {
         <h1 className="text-2xl font-semibold">Логи</h1>
         <p className="text-sm text-muted-foreground mt-0.5">История обновлений источников и DNS-резолвера</p>
       </div>
+
+      <RunningTasksList tasks={runningTasks} />
+
+      <StatsBar logs={allLogs} />
 
       <div className="flex items-center gap-3">
         <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as TypeFilter)}>

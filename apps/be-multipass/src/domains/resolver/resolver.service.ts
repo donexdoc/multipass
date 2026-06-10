@@ -5,6 +5,7 @@ import dns from 'node:dns/promises'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { SettingsService } from '../settings/settings.service.js'
 import { ExportService } from '../export/export.service.js'
+import { TaskTrackerService } from '../tasks/task-tracker.service.js'
 
 @Injectable()
 export class ResolverService implements OnModuleInit, OnModuleDestroy {
@@ -16,6 +17,7 @@ export class ResolverService implements OnModuleInit, OnModuleDestroy {
     private readonly settings: SettingsService,
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly exportService: ExportService,
+    private readonly taskTracker: TaskTrackerService,
   ) {}
 
   async onModuleInit() {
@@ -61,6 +63,7 @@ export class ResolverService implements OnModuleInit, OnModuleDestroy {
 
   async resolve() {
     const startedAt = new Date()
+    const taskId = this.taskTracker.start('DOMAIN_RESOLVE', null, null)
     this.logger.log('Domain resolution started')
 
     try {
@@ -143,6 +146,8 @@ export class ResolverService implements OnModuleInit, OnModuleDestroy {
       })
       this.logger.error(`Domain resolution failed: ${errorMessage}`)
       return { status: 'FAILURE' as const, domainsResolved: 0, ipsAdded: 0, ipsRemoved: 0, errorMessage }
+    } finally {
+      this.taskTracker.finish(taskId)
     }
   }
 }

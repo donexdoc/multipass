@@ -28,6 +28,7 @@ export const router = createBrowserRouter([
       { path: 'logs', lazy: () => import('../../pages/logs/index.js') },
       { path: 'settings', lazy: () => import('../../pages/settings/index.js') },
       { path: 'users', lazy: () => import('../../pages/users/index.js') },
+      { path: 'bgp', lazy: () => import('../../pages/bgp/index.js') },
     ],
   },
 ])

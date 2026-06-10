@@ -6,7 +6,8 @@
     "builder": {
       "type": "swc",
       "options": {
-        "swcrcPath": ".swcrc"
+        "swcrcPath": ".swcrc",
+        "stripLeadingPaths": true
       }
     },
     "deleteOutDir": true

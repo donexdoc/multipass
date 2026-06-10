@@ -4,6 +4,7 @@ import { CronJob } from 'cron'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { AddressType, LogType, LogStatus, type Source } from '@multipass/prisma'
 import { ExportService } from '../export/export.service.js'
+import { TaskTrackerService } from '../tasks/task-tracker.service.js'
 
 // Strict patterns — each octet 0-255, prefix 0-32, etc.
 const OCTET = '(?:25[0-5]|2[0-4]\\d|1\\d{2}|[1-9]\\d|\\d)'
@@ -49,14 +50,21 @@ export class SourceFetcherService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly exportService: ExportService,
+    private readonly taskTracker: TaskTrackerService,
   ) {}
 
   async onModuleInit() {
     const sources = await this.prisma.source.findMany({ where: { isEnabled: true } })
+    let scheduled = 0
     for (const source of sources) {
-      this.scheduleSource(source)
+      try {
+        this.scheduleSource(source)
+        scheduled++
+      } catch (err) {
+        this.logger.error(`Failed to schedule source "${source.name}" (${source.id}): ${String(err)}`)
+      }
     }
-    this.logger.log(`Scheduled ${sources.length} source fetch job(s)`)
+    this.logger.log(`Scheduled ${scheduled}/${sources.length} source fetch job(s)`)
   }
 
   onModuleDestroy() {
@@ -76,15 +84,20 @@ export class SourceFetcherService implements OnModuleInit, OnModuleDestroy {
       // job doesn't exist yet — that's fine
     }
 
-    const job = CronJob.from({
-      cronTime: source.updateInterval,
-      onTick: () => {
-        this.fetchSource(source.id).catch(err => {
-          this.logger.error(`Unhandled error fetching source ${source.id}: ${String(err)}`)
-        })
-      },
-      start: true,
-    })
+    let job: InstanceType<typeof CronJob>
+    try {
+      job = CronJob.from({
+        cronTime: source.updateInterval,
+        onTick: () => {
+          this.fetchSource(source.id).catch(err => {
+            this.logger.error(`Unhandled error fetching source ${source.id}: ${String(err)}`)
+          })
+        },
+        start: true,
+      })
+    } catch (err) {
+      throw new Error(`Invalid cron expression "${source.updateInterval}": ${String(err)}`)
+    }
 
     // cron@4 is a direct dep; @nestjs/schedule internally uses cron@3 — types differ at minor level
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -106,71 +119,82 @@ export class SourceFetcherService implements OnModuleInit, OnModuleDestroy {
     if (!source || !source.isEnabled) return
 
     const startedAt = new Date()
+    const taskId = this.taskTracker.start(LogType.SOURCE_FETCH, sourceId, source.name)
     this.logger.log(`Fetching source "${source.name}" from ${source.url}`)
 
-    let rawText: string
     try {
-      const response = await fetch(source.url)
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status} ${response.statusText}`)
+      let rawText: string
+      try {
+        const response = await fetch(source.url)
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status} ${response.statusText}`)
+        }
+        rawText = await response.text()
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err)
+        this.logger.warn(`Failed to fetch source "${source.name}": ${errorMessage}`)
+
+        await Promise.all([
+          this.prisma.updateLog.create({
+            data: {
+              type: LogType.SOURCE_FETCH,
+              sourceId,
+              status: LogStatus.FAILURE,
+              errorMessage,
+              startedAt,
+              completedAt: new Date(),
+            },
+          }),
+          this.prisma.source.update({
+            where: { id: sourceId },
+            data: { lastStatus: LogStatus.FAILURE, lastErrorMessage: errorMessage },
+          }),
+        ])
+        return
       }
-      rawText = await response.text()
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err)
-      this.logger.warn(`Failed to fetch source "${source.name}": ${errorMessage}`)
 
-      await Promise.all([
-        this.prisma.updateLog.create({
-          data: {
-            type: LogType.SOURCE_FETCH,
-            sourceId,
-            status: LogStatus.FAILURE,
-            errorMessage,
-            startedAt,
-            completedAt: new Date(),
-          },
-        }),
-        this.prisma.source.update({
-          where: { id: sourceId },
-          data: { lastStatus: LogStatus.FAILURE, lastErrorMessage: errorMessage },
-        }),
-      ])
-      return
+      const parsed = parsePlainText(rawText)
+
+      const entriesRemoved = source.entryCount
+      const newAddresses = parsed.map(({ value, type }) => ({ sourceId, value, type }))
+
+      const CHUNK_SIZE = 5_000
+      await this.prisma.$transaction(
+        async (tx) => {
+          await tx.sourceAddress.deleteMany({ where: { sourceId } })
+          for (let i = 0; i < newAddresses.length; i += CHUNK_SIZE) {
+            await tx.sourceAddress.createMany({ data: newAddresses.slice(i, i + CHUNK_SIZE) })
+          }
+          await tx.source.update({
+            where: { id: sourceId },
+            data: {
+              lastFetchedAt: new Date(),
+              lastStatus: LogStatus.SUCCESS,
+              lastErrorMessage: null,
+              entryCount: newAddresses.length,
+            },
+          })
+          await tx.updateLog.create({
+            data: {
+              type: LogType.SOURCE_FETCH,
+              sourceId,
+              status: LogStatus.SUCCESS,
+              entriesAdded: newAddresses.length,
+              entriesRemoved,
+              startedAt,
+              completedAt: new Date(),
+            },
+          })
+        },
+        { timeout: 120_000 },
+      )
+
+      this.logger.log(
+        `Source "${source.name}" fetched: ${newAddresses.length} entries (+${newAddresses.length} / -${entriesRemoved})`,
+      )
+      this.exportService.invalidateCache()
+    } finally {
+      this.taskTracker.finish(taskId)
     }
-
-    const parsed = parsePlainText(rawText)
-
-    const entriesRemoved = source.entryCount
-    const newAddresses = parsed.map(({ value, type }) => ({ sourceId, value, type }))
-
-    await this.prisma.$transaction([
-      this.prisma.sourceAddress.deleteMany({ where: { sourceId } }),
-      this.prisma.sourceAddress.createMany({ data: newAddresses }),
-      this.prisma.source.update({
-        where: { id: sourceId },
-        data: {
-          lastFetchedAt: new Date(),
-          lastStatus: LogStatus.SUCCESS,
-          lastErrorMessage: null,
-          entryCount: newAddresses.length,
-        },
-      }),
-      this.prisma.updateLog.create({
-        data: {
-          type: LogType.SOURCE_FETCH,
-          sourceId,
-          status: LogStatus.SUCCESS,
-          entriesAdded: newAddresses.length,
-          entriesRemoved,
-          startedAt,
-          completedAt: new Date(),
-        },
-      }),
-    ])
-
-    this.logger.log(
-      `Source "${source.name}" fetched: ${newAddresses.length} entries (+${newAddresses.length} / -${entriesRemoved})`,
-    )
-    this.exportService.invalidateCache()
   }
 }

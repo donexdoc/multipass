@@ -21,8 +21,10 @@ export default defineConfig({
     pool: 'forks',
     poolOptions: { forks: { singleFork: true } },
     include: ['test/e2e/**/*.e2e-spec.ts', 'test/unit/**/*.spec.ts'],
-    deps: {
-      inline: ['cron'],
+    server: {
+      deps: {
+        inline: ['cron'],
+      },
     },
     env: {
       // In CI: set DATABASE_URL to point to the service container (e.g. @postgres:5432).

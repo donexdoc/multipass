@@ -1,14 +1,19 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
+import { EventEmitter2 } from '@nestjs/event-emitter'
 import { PrismaService } from '../../prisma/prisma.service.js'
 
 @Injectable()
 export class ExportService {
   private readonly cache = new Map<string, string>()
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   invalidateCache() {
     this.cache.clear()
+    this.eventEmitter.emit('addresses.changed')
   }
 
   async generate(slug: string): Promise<{ content: string; contentType: string }> {

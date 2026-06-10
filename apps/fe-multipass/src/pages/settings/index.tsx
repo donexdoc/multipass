@@ -6,12 +6,20 @@ import { Badge } from '@/shared/ui/badge.js'
 import { Button } from '@/shared/ui/button.js'
 import { Input } from '@/shared/ui/input.js'
 import { Skeleton } from '@/shared/ui/skeleton.js'
+import { Switch } from '@/shared/ui/switch.js'
 import { Pencil, Check, X } from 'lucide-react'
+
+function isBoolValue(v: string) {
+  return v === 'true' || v === 'false'
+}
 
 function SettingRow({ setting }: { setting: Setting }) {
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(setting.value)
   const { mutate: update, isPending } = useUpdateSetting()
+
+  // Sync local state when server value changes (e.g. after invalidation)
+  if (!editing && value !== setting.value) setValue(setting.value)
 
   const handleSave = () => {
     update(
@@ -28,15 +36,47 @@ function SettingRow({ setting }: { setting: Setting }) {
     setEditing(false)
   }
 
+  const header = (
+    <div className="flex items-center gap-2 mb-1">
+      <code className="text-sm font-mono font-medium">{setting.key}</code>
+      {setting.isDefault && (
+        <Badge variant="secondary" className="text-xs">По умолчанию</Badge>
+      )}
+    </div>
+  )
+
+  // Boolean setting: render a toggle, no manual edit mode
+  if (isBoolValue(setting.value)) {
+    return (
+      <div className="flex items-center gap-4 py-4 border-b border-border last:border-0">
+        <div className="flex-1 min-w-0">
+          {header}
+          {setting.description && (
+            <p className="text-xs text-muted-foreground">{setting.description}</p>
+          )}
+        </div>
+        <Switch
+          checked={setting.value === 'true'}
+          disabled={isPending}
+          onCheckedChange={(checked) => {
+            update(
+              { key: setting.key, value: checked ? 'true' : 'false' },
+              {
+                onSuccess: () => toast.success('Настройка сохранена'),
+                onError: () => toast.error('Ошибка при сохранении'),
+              },
+            )
+          }}
+        />
+      </div>
+    )
+  }
+
+  // Text setting
   return (
     <div className="flex items-start gap-4 py-4 border-b border-border last:border-0">
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
-          <code className="text-sm font-mono font-medium">{setting.key}</code>
-          {setting.isDefault && (
-            <Badge variant="secondary" className="text-xs">По умолчанию</Badge>
-          )}
-        </div>
+        {header}
         {setting.description && (
           <p className="text-xs text-muted-foreground mb-2">{setting.description}</p>
         )}
@@ -47,6 +87,7 @@ function SettingRow({ setting }: { setting: Setting }) {
               value={value}
               onChange={(e) => setValue(e.target.value)}
               className="h-8 text-sm font-mono max-w-xs"
+              placeholder="Не задано"
               autoFocus
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleSave()
@@ -60,6 +101,8 @@ function SettingRow({ setting }: { setting: Setting }) {
               <X size={14} />
             </Button>
           </div>
+        ) : setting.value === '' ? (
+          <span className="text-sm text-muted-foreground italic">Не задано</span>
         ) : (
           <code className="text-sm bg-muted px-2 py-0.5 rounded">{setting.value}</code>
         )}

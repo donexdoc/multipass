@@ -8,6 +8,7 @@ import {
   ScrollText,
   Settings,
   Users,
+  Radio,
   X,
   PanelLeftClose,
   PanelLeftOpen,
@@ -23,6 +24,7 @@ const NAV_ITEMS = [
   { to: '/export-formats', label: 'Форматы экспорта', icon: FileCode2 },
   { to: '/export-preview', label: 'Превью экспорта', icon: Eye },
   { to: '/logs', label: 'Логи', icon: ScrollText },
+  { to: '/bgp', label: 'BGP', icon: Radio },
   { to: '/settings', label: 'Настройки', icon: Settings },
   { to: '/users', label: 'Пользователи', icon: Users },
 ] as const

@@ -35,4 +35,6 @@ export type { CustomEntry, CreateCustomEntryDto, UpdateCustomEntryDto } from './
 export type { ExportFormat, CreateExportFormatDto, UpdateExportFormatDto } from './types/export-format.js'
 export type { Setting, UpdateSettingDto } from './types/setting.js'
 export type { UpdateLog } from './types/log.js'
+export type { RunningTask } from './types/task.js'
 export type { DashboardStats, ExportFormatBrief, LastFetchStat, LastResolveStat } from './types/stats.js'
+export type { BgpStatus } from './types/bgp.js'
